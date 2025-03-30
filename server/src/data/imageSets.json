@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "images": [
+      "https://example.com/set1/image1.jpg",
+      "https://example.com/set1/image2.jpg",
+      "https://example.com/set1/image3.jpg"
+    ],
+    "correctAnswer": "example.com",
+    "category": "technology"
+  },
+  {
+    "id": 2,
+    "images": [
+      "https://example.com/set2/image1.jpg",
+      "https://example.com/set2/image2.jpg",
+      "https://example.com/set2/image3.jpg"
+    ],
+    "correctAnswer": "example.com",
+    "category": "entertainment"
+  }
+]
