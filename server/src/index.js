@@ -1,10 +1,25 @@
 const express = require("express");
 const { WebSocketServer } = require("ws");
 const http = require("http");
+const https = require("https");
 const { v4: uuidv4 } = require("uuid");
+const fs = require("fs");
+const path = require("path");
+require('dotenv').config();
 
 const app = express();
-const server = http.createServer(app);
+let server;
+
+// Configure HTTPS if SSL certificates are provided
+if (process.env.NODE_ENV === 'production' && process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH) {
+  const privateKey = fs.readFileSync(process.env.SSL_KEY_PATH, 'utf8');
+  const certificate = fs.readFileSync(process.env.SSL_CERT_PATH, 'utf8');
+  const credentials = { key: privateKey, cert: certificate };
+  server = https.createServer(credentials, app);
+} else {
+  server = http.createServer(app);
+}
+
 const wss = new WebSocketServer({ server });
 
 // Store active connections and rooms
@@ -42,6 +57,14 @@ const mockRounds = [
   }
 ];
 
+// Game configuration from environment variables
+const GAME_CONFIG = {
+  maxPlayersPerRoom: parseInt(process.env.MAX_PLAYERS_PER_ROOM) || 2,
+  roundTimer: parseInt(process.env.ROUND_TIMER) || 20,
+  maxGuessesPerRound: parseInt(process.env.MAX_GUESSES_PER_ROUND) || 5,
+  guessCooldown: parseInt(process.env.GUESS_COOLDOWN) || 2000
+};
+
 // Room class to manage room state
 class Room {
   constructor(roomCode) {
@@ -53,7 +76,7 @@ class Room {
       roomCode,
       round: 1,
       maxRounds: mockRounds.length,
-      timeLeft: 20,
+      timeLeft: GAME_CONFIG.roundTimer,
       totalScore: 0,
       players: [],
       currentRound: {
@@ -63,8 +86,8 @@ class Room {
     };
     // Add guess tracking
     this.guessHistory = new Map(); // playerId -> { lastGuess: string, lastGuessTime: number, guessCount: number }
-    this.GUESS_COOLDOWN = 2000; // 2 seconds between guesses
-    this.MAX_GUESSES_PER_ROUND = 5; // Maximum guesses allowed per round
+    this.GUESS_COOLDOWN = GAME_CONFIG.guessCooldown;
+    this.MAX_GUESSES_PER_ROUND = GAME_CONFIG.maxGuessesPerRound;
   }
 
   // Add input validation helper
@@ -105,7 +128,7 @@ class Room {
     this.state = {
       ...this.state,
       round: 1,
-      timeLeft: 20,
+      timeLeft: GAME_CONFIG.roundTimer,
       totalScore: 0,
       currentRound: {
         images: mockRounds[0].images,
@@ -162,7 +185,7 @@ class Room {
       clearInterval(this.roundTimer);
     }
     
-    this.state.timeLeft = 20;
+    this.state.timeLeft = GAME_CONFIG.roundTimer;
     this.updateState();
     
     // Start the countdown
@@ -193,14 +216,32 @@ class Room {
       };
       this.startRound();
     } else {
-      // Game over
-      this.broadcast('gameOver', {
-        players: Array.from(this.players.values()).map(({ id, username, score }) => ({
-          id,
-          username,
-          score
+      // Game over - determine winner
+      const players = Array.from(this.players.values());
+      const winner = players.reduce((prev, current) => 
+        (prev.score > current.score) ? prev : current
+      );
+      
+      // Check for tie
+      const isTie = players.filter(p => p.score === winner.score).length > 1;
+      
+      // Game over state
+      this.state.gameOver = {
+        winner: isTie ? null : {
+          id: winner.id,
+          username: winner.username,
+          score: winner.score
+        },
+        isTie,
+        finalScores: players.map(p => ({
+          id: p.id,
+          username: p.username,
+          score: p.score
         }))
-      });
+      };
+
+      // Broadcast game over
+      this.broadcast('gameOver', this.state.gameOver);
       console.log(`Game over in room ${this.roomCode}`);
     }
   }
@@ -406,14 +447,12 @@ function handleJoinRoom(clientId, ws, data) {
     
     let room = rooms.get(roomCode);
     
-    // Create room if it doesn't exist
     if (!room) {
         room = new Room(roomCode);
         rooms.set(roomCode, room);
     }
 
-    // Check if room is full (max 2 players)
-    if (room.players.size >= 2) {
+    if (room.players.size >= GAME_CONFIG.maxPlayersPerRoom) {
         ws.send(JSON.stringify({
             type: 'error',
             message: 'Room is full'
@@ -421,7 +460,6 @@ function handleJoinRoom(clientId, ws, data) {
         return;
     }
 
-    // Add player to room
     room.addPlayer(clientId, username, ws);
     console.log(`Player ${username} joined room ${roomCode}`);
 }
@@ -471,8 +509,10 @@ app.get("/", (req, res) => {
     res.send("Guess the Link Game Server");
 });
 
-// Start server
+// Start server with environment variables
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const HOST = process.env.WS_HOST || '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
+    console.log(`Server running on ${process.env.NODE_ENV === 'production' ? 'https' : 'http'}://${HOST}:${PORT}`);
 });

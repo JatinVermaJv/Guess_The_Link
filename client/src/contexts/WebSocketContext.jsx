@@ -71,12 +71,17 @@ export function WebSocketProvider({ children }) {
         setIsConnected(true);
         break;
       case 'gameState':
-        setGameState(data.state);
+        // When receiving a new game state, ensure gameOver is cleared
+        setGameState(prev => ({
+          ...data.state,
+          gameOver: null // Explicitly clear gameOver state
+        }));
         break;
       case 'roundUpdate':
         setGameState(prev => ({
           ...prev,
-          currentRound: data.round
+          currentRound: data.round,
+          gameOver: null // Clear gameOver when round updates
         }));
         break;
       case 'scoreUpdate':
@@ -86,7 +91,8 @@ export function WebSocketProvider({ children }) {
             player.id === data.playerId
               ? { ...player, score: data.score }
               : player
-          )
+          ),
+          gameOver: null // Clear gameOver when scores update
         }));
         break;
       case 'correctGuess':
@@ -97,7 +103,8 @@ export function WebSocketProvider({ children }) {
             player.id === data.state.playerId
               ? { ...player, score: data.state.totalScore }
               : player
-          )
+          ),
+          gameOver: null // Clear gameOver on correct guess
         }));
         // Show success message
         setError(null);
@@ -112,8 +119,7 @@ export function WebSocketProvider({ children }) {
       case 'gameOver':
         setGameState(prev => ({
           ...prev,
-          isGameOver: true,
-          finalScores: data.state.players
+          gameOver: data.state
         }));
         break;
       case 'error':
