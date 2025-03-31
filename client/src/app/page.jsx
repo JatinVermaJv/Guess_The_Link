@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
+import { useWebSocket } from '@/contexts/WebSocketContext';
 import dynamic from 'next/dynamic';
 
 // Dynamically import icons with no SSR
@@ -20,24 +22,50 @@ const FaArrowRight = dynamic(() => import('react-icons/fa').then(mod => mod.FaAr
 });
 
 export default function Home() {
+  const router = useRouter();
+  const { joinRoom, isConnected } = useWebSocket();
   const [showJoinForm, setShowJoinForm] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleCreateRoom = () => {
-    // TODO: Implement room creation
-    console.log('Creating room...');
+  const handleCreateRoom = async () => {
+    if (!username) {
+      setError('Please enter a username first');
+      setShowJoinForm(true);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Generate a random room code (6 characters)
+      const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      await joinRoom(newRoomCode, username);
+      router.push('/game');
+    } catch (err) {
+      setError('Failed to create room. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleJoinRoom = (e) => {
+  const handleJoinRoom = async (e) => {
     e.preventDefault();
     if (!roomCode || !username) {
       setError('Please fill in all fields');
       return;
     }
-    // TODO: Implement room joining
-    console.log('Joining room:', { roomCode, username });
+
+    setIsLoading(true);
+    try {
+      await joinRoom(roomCode, username);
+      router.push('/game');
+    } catch (err) {
+      setError('Failed to join room. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -64,12 +92,20 @@ export default function Home() {
             exit={{ opacity: 0, x: 20 }}
             className="space-y-4"
           >
+            <Input
+              label="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter your username"
+              error={error}
+            />
             <Button
               onClick={handleCreateRoom}
               className="w-full flex items-center justify-center gap-2"
+              disabled={isLoading || !username}
             >
               <FaGamepad className="text-xl" />
-              Create New Room
+              {isLoading ? 'Creating Room...' : 'Create New Room'}
             </Button>
             <Button
               variant="secondary"
@@ -108,14 +144,16 @@ export default function Home() {
                 variant="secondary"
                 onClick={() => setShowJoinForm(false)}
                 className="flex-1"
+                disabled={isLoading}
               >
                 Back
               </Button>
               <Button
                 type="submit"
                 className="flex-1 flex items-center justify-center gap-2"
+                disabled={isLoading || !roomCode || !username}
               >
-                Join Room
+                {isLoading ? 'Joining...' : 'Join Room'}
                 <FaArrowRight />
               </Button>
             </div>
