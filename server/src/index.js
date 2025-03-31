@@ -2,139 +2,369 @@ const express = require("express");
 const { WebSocketServer } = require("ws");
 const http = require("http");
 const { v4: uuidv4 } = require("uuid");
-const RoomManager = require("./game/RoomManager");
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Initialize room manager
-const roomManager = new RoomManager();
+// Store active connections and rooms
+const connections = new Map();
+const rooms = new Map();
 
-// Store active connections
-const clients = new Map();
+// Mock rounds data with correct links
+const mockRounds = [
+  {
+    images: [
+      'https://picsum.photos/300/300?random=1',
+      'https://picsum.photos/300/300?random=2',
+      'https://picsum.photos/300/300?random=3'
+    ],
+    correctLink: 'nature',
+    hint: 'Think about the outdoors'
+  },
+  {
+    images: [
+      'https://picsum.photos/300/300?random=4',
+      'https://picsum.photos/300/300?random=5',
+      'https://picsum.photos/300/300?random=6'
+    ],
+    correctLink: 'technology',
+    hint: 'Digital world'
+  },
+  {
+    images: [
+      'https://picsum.photos/300/300?random=7',
+      'https://picsum.photos/300/300?random=8',
+      'https://picsum.photos/300/300?random=9'
+    ],
+    correctLink: 'food',
+    hint: 'Something delicious'
+  }
+];
 
-// WebSocket connection handling
+// Room class to manage room state
+class Room {
+  constructor(roomCode) {
+    this.roomCode = roomCode;
+    this.players = new Map();
+    this.currentRoundIndex = 0;
+    this.roundTimer = null;
+    this.state = {
+      roomCode,
+      round: 1,
+      maxRounds: mockRounds.length,
+      timeLeft: 20,
+      totalScore: 0,
+      players: [],
+      currentRound: {
+        images: mockRounds[0].images,
+        hint: mockRounds[0].hint
+      }
+    };
+  }
+
+  resetGame() {
+    this.currentRoundIndex = 0;
+    // Clear existing timer if any
+    if (this.roundTimer) {
+      clearInterval(this.roundTimer);
+      this.roundTimer = null;
+    }
+    
+    this.state = {
+      ...this.state,
+      round: 1,
+      timeLeft: 20,
+      totalScore: 0,
+      currentRound: {
+        images: mockRounds[0].images,
+        hint: mockRounds[0].hint
+      }
+    };
+    
+    // Reset all player scores
+    this.players.forEach(player => {
+      player.score = 0;
+    });
+    
+    this.updateState();
+    this.startRound();
+    console.log(`Game reset in room ${this.roomCode}`);
+  }
+
+  addPlayer(clientId, username, ws) {
+    const player = {
+      id: clientId,
+      username,
+      score: 0,
+      ws
+    };
+    this.players.set(clientId, player);
+    this.updateState();
+
+    // Start the game if we have 2 players
+    if (this.players.size === 2) {
+      console.log(`Starting game in room ${this.roomCode}`);
+      this.startRound();
+    }
+  }
+
+  removePlayer(clientId) {
+    this.players.delete(clientId);
+    this.updateState();
+    
+    // Clear timer if a player leaves
+    if (this.roundTimer) {
+      clearInterval(this.roundTimer);
+      this.roundTimer = null;
+    }
+    
+    return this.players.size === 0;
+  }
+
+  startRound() {
+    console.log(`Starting round ${this.state.round} in room ${this.roomCode}`);
+    
+    // Clear any existing timer
+    if (this.roundTimer) {
+      clearInterval(this.roundTimer);
+    }
+    
+    this.state.timeLeft = 20;
+    this.updateState();
+    
+    // Start the countdown
+    this.roundTimer = setInterval(() => {
+      this.state.timeLeft--;
+      this.updateState();
+      
+      if (this.state.timeLeft <= 0) {
+        this.endRound();
+      }
+    }, 1000);
+  }
+
+  endRound() {
+    console.log(`Ending round ${this.state.round} in room ${this.roomCode}`);
+    if (this.roundTimer) {
+      clearInterval(this.roundTimer);
+      this.roundTimer = null;
+    }
+
+    // Move to next round
+    this.currentRoundIndex++;
+    if (this.currentRoundIndex < mockRounds.length) {
+      this.state.round++;
+      this.state.currentRound = {
+        images: mockRounds[this.currentRoundIndex].images,
+        hint: mockRounds[this.currentRoundIndex].hint
+      };
+      this.startRound();
+    } else {
+      // Game over
+      this.broadcast('gameOver', {
+        players: Array.from(this.players.values()).map(({ id, username, score }) => ({
+          id,
+          username,
+          score
+        }))
+      });
+      console.log(`Game over in room ${this.roomCode}`);
+    }
+  }
+
+  submitGuess(clientId, guess) {
+    const player = this.players.get(clientId);
+    if (!player || !this.roundTimer) return;
+
+    const currentRound = mockRounds[this.currentRoundIndex];
+    const normalizedGuess = guess.toLowerCase().trim();
+    const normalizedCorrect = currentRound.correctLink.toLowerCase().trim();
+
+    console.log(`Player ${player.username} guessed: ${guess}`);
+    console.log(`Correct answer is: ${currentRound.correctLink}`);
+
+    if (normalizedGuess === normalizedCorrect) {
+      // Calculate score based on time left (more time = more points)
+      const scoreForRound = Math.max(10, this.state.timeLeft * 5);
+      player.score += scoreForRound;
+      
+      console.log(`Correct guess! ${player.username} scored ${scoreForRound} points`);
+      
+      // Notify all players of correct guess
+      this.broadcast('correctGuess', {
+        playerId: clientId,
+        username: player.username,
+        scoreForRound,
+        totalScore: player.score,
+        correctLink: currentRound.correctLink
+      });
+
+      // End the round
+      this.endRound();
+    } else {
+      // Notify player of incorrect guess
+      player.ws.send(JSON.stringify({
+        type: 'incorrectGuess',
+        data: {
+          guess: guess,
+          message: 'Try again!'
+        }
+      }));
+      console.log(`Incorrect guess by ${player.username}`);
+    }
+  }
+
+  updateState() {
+    // Update the state with current players
+    this.state.players = Array.from(this.players.values()).map(({ id, username, score }) => ({
+      id,
+      username,
+      score
+    }));
+
+    // Calculate total score
+    this.state.totalScore = this.state.players.reduce((sum, player) => sum + player.score, 0);
+
+    // Broadcast state to all players
+    this.broadcast('gameState', this.state);
+  }
+
+  broadcast(type, data) {
+    const message = JSON.stringify({ type, state: data });
+    this.players.forEach(player => {
+      if (player.ws.readyState === player.ws.OPEN) {
+        player.ws.send(message);
+      }
+    });
+  }
+}
+
+// WebSocket connection handler
 wss.on("connection", (ws) => {
     const clientId = uuidv4();
-    clients.set(clientId, ws);
+    connections.set(clientId, ws);
 
-    // Set up ping interval for this client
-    const pingInterval = setInterval(() => {
-        if (ws.readyState === ws.OPEN) {
-            ws.ping();
-        }
-    }, 30000); // Send ping every 30 seconds
+    console.log(`Client connected: ${clientId}`);
+
+    // Send initial connection success message
+    ws.send(JSON.stringify({
+        type: "connection",
+        data: { clientId }
+    }));
 
     // Handle incoming messages
     ws.on("message", (message) => {
         try {
             const data = JSON.parse(message);
-            console.log(`Received message from ${clientId}:`, data);
-
-            // Handle different message types
-            switch (data.type) {
-                case "createRoom":
-                    handleCreateRoom(clientId, ws);
-                    break;
-                case "joinRoom":
-                    handleJoinRoom(clientId, ws, data.roomId, data.username);
-                    break;
-                case "leaveRoom":
-                    handleLeaveRoom(clientId);
-                    break;
-                case "submitGuess":
-                    handleGameMessage(clientId, data);
-                    break;
-                default:
-                    console.log('Unknown message type:', data.type);
-            }
+            handleMessage(clientId, ws, data);
         } catch (error) {
-            console.error("Error processing message:", error);
+            console.error("Error parsing message:", error);
             ws.send(JSON.stringify({
                 type: "error",
-                message: error.message || "Invalid message format"
+                message: "Invalid message format"
             }));
         }
     });
 
-    // Handle client disconnect
+    // Handle client disconnection
     ws.on("close", () => {
-        console.log(`Client ${clientId} disconnected`);
-        clearInterval(pingInterval);
-        handleLeaveRoom(clientId);
-        clients.delete(clientId);
+        console.log(`Client disconnected: ${clientId}`);
+        handleDisconnection(clientId);
+        connections.delete(clientId);
     });
 
-    // Handle ping/pong
-    ws.on("ping", () => {
-        ws.pong();
+    // Handle errors
+    ws.on("error", (error) => {
+        console.error(`WebSocket error for client ${clientId}:`, error);
+        handleDisconnection(clientId);
+        connections.delete(clientId);
     });
-
-    // Send welcome message to new client
-    ws.send(JSON.stringify({
-        type: "connectionEstablished",
-        clientId: clientId
-    }));
 });
 
-// Message handlers
-function handleCreateRoom(clientId, ws) {
-    try {
-        const roomId = roomManager.createRoom();
-        ws.send(JSON.stringify({
-            type: "roomCreated",
-            roomId: roomId
-        }));
-    } catch (error) {
-        ws.send(JSON.stringify({
-            type: "error",
-            message: error.message
-        }));
+// Message handler
+function handleMessage(clientId, ws, message) {
+    switch (message.type) {
+        case "joinRoom":
+            handleJoinRoom(clientId, ws, message.data);
+            break;
+        case "submitGuess":
+            handleSubmitGuess(clientId, message.data);
+            break;
+        case "resetGame":
+            handleResetGame(clientId);
+            break;
+        default:
+            ws.send(JSON.stringify({
+                type: "error",
+                message: "Unknown message type"
+            }));
     }
 }
 
-function handleJoinRoom(clientId, ws, roomId, username) {
-    try {
-        const joinResult = roomManager.joinRoom(roomId, clientId, ws, username);
-        const room = roomManager.getRoom(roomId);
-        
-        // Notify the joining player
-        ws.send(JSON.stringify({
-            type: "roomJoined",
-            ...joinResult
-        }));
-
-        // Notify other players in the room
-        room.broadcast({
-            type: "playerJoined",
-            username: username
-        }, clientId);
-    } catch (error) {
-        ws.send(JSON.stringify({
-            type: "error",
-            message: error.message
-        }));
+// Room joining handler
+function handleJoinRoom(clientId, ws, data) {
+    const { roomCode, username } = data;
+    
+    let room = rooms.get(roomCode);
+    
+    // Create room if it doesn't exist
+    if (!room) {
+        room = new Room(roomCode);
+        rooms.set(roomCode, room);
     }
-}
 
-function handleLeaveRoom(clientId) {
-    try {
-        roomManager.leaveRoom(clientId);
-    } catch (error) {
-        console.error("Error leaving room:", error);
-    }
-}
-
-function handleGameMessage(clientId, data) {
-    const roomId = roomManager.getPlayerRoom(clientId);
-    if (!roomId) {
+    // Check if room is full (max 2 players)
+    if (room.players.size >= 2) {
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Room is full'
+        }));
         return;
     }
 
-    const room = roomManager.getRoom(roomId);
-    if (room) {
-        room.handleGameMessage(clientId, data);
+    // Add player to room
+    room.addPlayer(clientId, username, ws);
+    console.log(`Player ${username} joined room ${roomCode}`);
+}
+
+// Guess submission handler
+function handleSubmitGuess(clientId, data) {
+    const { guess } = data;
+    
+    // Find the room this client is in
+    for (const room of rooms.values()) {
+        if (room.players.has(clientId)) {
+            room.submitGuess(clientId, guess);
+            break;
+        }
+    }
+}
+
+// Handle client disconnection
+function handleDisconnection(clientId) {
+    // Remove player from their room
+    for (const [roomCode, room] of rooms.entries()) {
+        if (room.players.has(clientId)) {
+            const isEmpty = room.removePlayer(clientId);
+            // Delete room if empty
+            if (isEmpty) {
+                rooms.delete(roomCode);
+                console.log(`Room ${roomCode} deleted (empty)`);
+            }
+            break;
+        }
+    }
+}
+
+// Add new handler for resetGame
+function handleResetGame(clientId) {
+    // Find the room this client is in
+    for (const room of rooms.values()) {
+        if (room.players.has(clientId)) {
+            room.resetGame();
+            break;
+        }
     }
 }
 
@@ -144,8 +374,7 @@ app.get("/", (req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`WebSocket server is ready to accept connections`);
+    console.log(`Server running on port ${PORT}`);
 });
