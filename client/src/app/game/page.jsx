@@ -33,6 +33,7 @@ export default function GamePage() {
   const [localError, setLocalError] = useState(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [remainingAttempts, setRemainingAttempts] = useState(5);
   const redirectTimeout = useRef(null);
 
   // Handle connection state with delay
@@ -68,6 +69,11 @@ export default function GamePage() {
     }
   }, [feedback]);
 
+  // Reset remaining attempts when round changes
+  useEffect(() => {
+    setRemainingAttempts(5);
+  }, [gameState?.round]);
+
   const handleSubmitGuess = async (e) => {
     e.preventDefault();
     if (!guess.trim()) {
@@ -80,6 +86,7 @@ export default function GamePage() {
       await submitGuess(guess.trim());
       setGuess('');
       setLocalError(null);
+      setRemainingAttempts(prev => Math.max(0, prev - 1));
     } catch (err) {
       setLocalError('Failed to submit guess. Please try again.');
     } finally {
@@ -175,6 +182,11 @@ export default function GamePage() {
                 <FaUser className="text-blue-400" />
                 <span className="font-medium">{player.username}</span>
                 <span className="text-gray-400">{player.score} points</span>
+                {player.id === gameState.players[0].id && (
+                  <span className="text-sm text-gray-500">
+                    ({remainingAttempts} attempts left)
+                  </span>
+                )}
               </motion.div>
             ))}
           </div>
@@ -245,17 +257,22 @@ export default function GamePage() {
               value={guess}
               onChange={(e) => setGuess(e.target.value)}
               placeholder="Enter the correct link..."
-              disabled={isLoading}
+              disabled={isLoading || remainingAttempts === 0}
               className="flex-1 bg-gray-800 border-gray-700 text-gray-100 placeholder-gray-500"
             />
             <Button
               type="submit"
               className="bg-blue-500 hover:bg-blue-600 text-white px-8"
-              disabled={isLoading}
+              disabled={isLoading || remainingAttempts === 0}
             >
-              {isLoading ? 'Submitting...' : 'Submit'}
+              {isLoading ? 'Submitting...' : remainingAttempts === 0 ? 'No attempts left' : 'Submit'}
             </Button>
           </div>
+          {remainingAttempts === 0 && (
+            <p className="text-red-400 text-sm mt-2 text-center">
+              Maximum attempts reached for this round
+            </p>
+          )}
         </motion.form>
       </div>
     </main>

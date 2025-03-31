@@ -61,6 +61,37 @@ class Room {
         hint: mockRounds[0].hint
       }
     };
+    // Add guess tracking
+    this.guessHistory = new Map(); // playerId -> { lastGuess: string, lastGuessTime: number, guessCount: number }
+    this.GUESS_COOLDOWN = 2000; // 2 seconds between guesses
+    this.MAX_GUESSES_PER_ROUND = 5; // Maximum guesses allowed per round
+  }
+
+  // Add input validation helper
+  validateGuess(guess) {
+    // Remove special characters and normalize
+    const normalizedGuess = guess.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '');
+    
+    // Check minimum length
+    if (normalizedGuess.length < 2) {
+      return {
+        isValid: false,
+        message: 'Guess must be at least 2 characters long'
+      };
+    }
+
+    // Check maximum length
+    if (normalizedGuess.length > 50) {
+      return {
+        isValid: false,
+        message: 'Guess must be less than 50 characters'
+      };
+    }
+
+    return {
+      isValid: true,
+      normalizedGuess
+    };
   }
 
   resetGame() {
@@ -82,10 +113,11 @@ class Room {
       }
     };
     
-    // Reset all player scores
+    // Reset all player scores and guess history
     this.players.forEach(player => {
       player.score = 0;
     });
+    this.guessHistory.clear();
     
     this.updateState();
     this.startRound();
@@ -177,16 +209,81 @@ class Room {
     const player = this.players.get(clientId);
     if (!player || !this.roundTimer) return;
 
+    // Get or initialize player's guess history
+    let playerHistory = this.guessHistory.get(clientId) || {
+      lastGuess: '',
+      lastGuessTime: 0,
+      guessCount: 0
+    };
+
+    // Check cooldown period
+    const now = Date.now();
+    if (now - playerHistory.lastGuessTime < this.GUESS_COOLDOWN) {
+      player.ws.send(JSON.stringify({
+        type: 'incorrectGuess',
+        data: {
+          guess: guess,
+          message: `Please wait ${Math.ceil((this.GUESS_COOLDOWN - (now - playerHistory.lastGuessTime)) / 1000)} seconds before guessing again`
+        }
+      }));
+      return;
+    }
+
+    // Check maximum guesses per round
+    if (playerHistory.guessCount >= this.MAX_GUESSES_PER_ROUND) {
+      player.ws.send(JSON.stringify({
+        type: 'incorrectGuess',
+        data: {
+          guess: guess,
+          message: 'Maximum guesses reached for this round'
+        }
+      }));
+      return;
+    }
+
+    // Validate and normalize the guess
+    const validation = this.validateGuess(guess);
+    if (!validation.isValid) {
+      player.ws.send(JSON.stringify({
+        type: 'incorrectGuess',
+        data: {
+          guess: guess,
+          message: validation.message
+        }
+      }));
+      return;
+    }
+
+    // Check for duplicate guesses
+    if (validation.normalizedGuess === playerHistory.lastGuess) {
+      player.ws.send(JSON.stringify({
+        type: 'incorrectGuess',
+        data: {
+          guess: guess,
+          message: 'You already tried this guess'
+        }
+      }));
+      return;
+    }
+
     const currentRound = mockRounds[this.currentRoundIndex];
-    const normalizedGuess = guess.toLowerCase().trim();
-    const normalizedCorrect = currentRound.correctLink.toLowerCase().trim();
+    const normalizedCorrect = currentRound.correctLink.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '');
 
     console.log(`Player ${player.username} guessed: ${guess}`);
     console.log(`Correct answer is: ${currentRound.correctLink}`);
 
-    if (normalizedGuess === normalizedCorrect) {
-      // Calculate score based on time left (more time = more points)
-      const scoreForRound = Math.max(10, this.state.timeLeft * 5);
+    // Update guess history
+    playerHistory.lastGuess = validation.normalizedGuess;
+    playerHistory.lastGuessTime = now;
+    playerHistory.guessCount++;
+    this.guessHistory.set(clientId, playerHistory);
+
+    if (validation.normalizedGuess === normalizedCorrect) {
+      // Calculate score based on time left and number of attempts
+      const baseScore = Math.max(10, this.state.timeLeft * 5);
+      const attemptsPenalty = (playerHistory.guessCount - 1) * 10; // 10 points penalty per attempt
+      const scoreForRound = Math.max(10, baseScore - attemptsPenalty);
+      
       player.score += scoreForRound;
       
       console.log(`Correct guess! ${player.username} scored ${scoreForRound} points`);
@@ -197,18 +294,19 @@ class Room {
         username: player.username,
         scoreForRound,
         totalScore: player.score,
-        correctLink: currentRound.correctLink
+        correctLink: currentRound.correctLink,
+        attempts: playerHistory.guessCount
       });
 
       // End the round
       this.endRound();
     } else {
-      // Notify player of incorrect guess
+      // Notify player of incorrect guess with remaining attempts
       player.ws.send(JSON.stringify({
         type: 'incorrectGuess',
         data: {
           guess: guess,
-          message: 'Try again!'
+          message: `Try again! (${this.MAX_GUESSES_PER_ROUND - playerHistory.guessCount} attempts remaining)`
         }
       }));
       console.log(`Incorrect guess by ${player.username}`);
