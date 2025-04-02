@@ -425,46 +425,32 @@ class Room {
   }
 }
 
-// WebSocket connection handler
-wss.on("connection", (ws) => {
-    const clientId = uuidv4();
-    connections.set(clientId, ws);
+// Handle WebSocket connections
+wss.on('connection', (ws, req) => {
+  console.log('New WebSocket connection established');
+  const clientId = uuidv4();
+  connections.set(clientId, ws);
 
-    console.log(`Client connected: ${clientId}`);
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      console.log('Received message:', data);
+      handleWebSocketMessage(clientId, data);
+    } catch (error) {
+      console.error('Error parsing message:', error);
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
+    }
+  });
 
-    // Send initial connection success message
-    ws.send(JSON.stringify({
-        type: "connection",
-        data: { clientId }
-    }));
+  ws.on('close', () => {
+    console.log('Client disconnected:', clientId);
+    handleClientDisconnect(clientId);
+  });
 
-    // Handle incoming messages
-    ws.on("message", (message) => {
-        try {
-            const data = JSON.parse(message);
-            handleMessage(clientId, ws, data);
-        } catch (error) {
-            console.error("Error parsing message:", error);
-            ws.send(JSON.stringify({
-                type: "error",
-                message: "Invalid message format"
-            }));
-        }
-    });
-
-    // Handle client disconnection
-    ws.on("close", () => {
-        console.log(`Client disconnected: ${clientId}`);
-        handleDisconnection(clientId);
-        connections.delete(clientId);
-    });
-
-    // Handle errors
-    ws.on("error", (error) => {
-        console.error(`WebSocket error for client ${clientId}:`, error);
-        handleDisconnection(clientId);
-        connections.delete(clientId);
-    });
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+    handleClientDisconnect(clientId);
+  });
 });
 
 // Message handler
