@@ -10,70 +10,79 @@ require('dotenv').config();
 
 const app = express();
 
-// Configure CORS
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+// Configure CORS with more detailed options
+const corsOptions = {
+  origin: (origin, callback) => {
+    const allowedOrigin = process.env.CORS_ORIGIN || '*';
+    console.log('Checking CORS for origin:', origin);
+    console.log('Allowed origin:', allowedOrigin);
+    
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigin === '*') {
+      return callback(null, true);
+    }
+    
+    if (origin === allowedOrigin) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+
+app.use(cors(corsOptions));
+
+// Add CORS preflight
+app.options('*', cors(corsOptions));
 
 let server;
 
-// In production, Render provides SSL termination, so we use HTTP
+// In production, use HTTP server (Render handles SSL)
 if (process.env.NODE_ENV === 'production') {
-  console.log('Using HTTP server (Render provides SSL termination)');
+  console.log('Starting server in production mode');
   server = http.createServer(app);
 } else {
-  // In development, try to use SSL if certificates are available
-  if (process.env.USE_SSL === 'true' && process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH) {
-    try {
-      const privateKey = fs.readFileSync(process.env.SSL_KEY_PATH, 'utf8');
-      const certificate = fs.readFileSync(process.env.SSL_CERT_PATH, 'utf8');
-      const credentials = { key: privateKey, cert: certificate };
-      server = https.createServer(credentials, app);
-      console.log('Server configured with SSL');
-    } catch (error) {
-      console.warn('SSL certificates not found, falling back to HTTP:', error);
-      server = http.createServer(app);
-    }
-  } else {
-    console.log('Using HTTP server');
-    server = http.createServer(app);
-  }
+  console.log('Starting server in development mode');
+  server = http.createServer(app);
 }
 
-// Configure WebSocket server with proper origin verification
+// Configure WebSocket server with detailed logging
 const wss = new WebSocketServer({ 
   server,
-  verifyClient: (info) => {
+  clientTracking: true,
+  verifyClient: (info, callback) => {
     const origin = info.origin;
     const allowedOrigin = process.env.CORS_ORIGIN;
-    console.log(`WebSocket connection attempt from origin: ${origin}`);
-    console.log(`Allowed origin from env: ${allowedOrigin}`);
+    
+    console.log('WebSocket connection attempt details:');
+    console.log('- Origin:', origin);
+    console.log('- Allowed Origin:', allowedOrigin);
+    console.log('- Headers:', info.req.headers);
+    console.log('- Environment:', process.env.NODE_ENV);
     
     // In development or if CORS_ORIGIN is not set, accept all origins
     if (!allowedOrigin || process.env.NODE_ENV !== 'production') {
-      console.log('Accepting connection (development mode or no CORS_ORIGIN set)');
-      return true;
+      console.log('Accepting connection (development mode or no CORS restriction)');
+      return callback(true);
     }
-
-    // In production, verify the origin
+    
+    // In production, verify against allowed origin
     if (origin === allowedOrigin) {
       console.log('Origin verified, accepting connection');
-      return true;
+      return callback(true);
     }
-
+    
     console.warn(`Rejected WebSocket connection from origin: ${origin}`);
-    return false;
+    return callback(false, 403, 'Forbidden by CORS policy');
   }
 });
 
 // Log when the WebSocket server is ready
 wss.on('listening', () => {
   console.log('WebSocket server is ready');
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode`);
-  console.log(`CORS origin: ${process.env.CORS_ORIGIN || '*'}`);
 });
 
 // Store active connections and rooms
@@ -435,99 +444,59 @@ class Room {
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
+  console.log('New WebSocket connection established');
   const clientId = uuidv4();
-  console.log(`New WebSocket connection established with ID: ${clientId}`);
-  
-  // Store the connection
   connections.set(clientId, ws);
-  
+
   // Send initial connection success message
   ws.send(JSON.stringify({
-    type: 'connection',
+    type: "connection",
     data: { clientId }
   }));
 
-  // Handle incoming messages
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(`Received message from ${clientId}:`, data);
-      
-      switch (data.type) {
-        case 'createRoom':
-          handleCreateRoom(clientId, ws, data.data);
-          break;
-        case 'joinRoom':
-          handleJoinRoom(clientId, ws, data.data);
-          break;
-        case 'submitGuess':
-          handleSubmitGuess(clientId, data.data);
-          break;
-        case 'resetGame':
-          handleResetGame(clientId);
-          break;
-        default:
-          console.warn(`Unknown message type: ${data.type}`);
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: `Unknown message type: ${data.type}`
-          }));
-      }
+      console.log('Received message:', data);
+      handleMessage(clientId, ws, data);
     } catch (error) {
-      console.error('Error processing message:', error);
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: 'Invalid message format'
+      console.error('Error parsing message:', error);
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: 'Invalid message format' 
       }));
     }
   });
 
-  // Handle client disconnection
   ws.on('close', () => {
-    console.log(`Client disconnected: ${clientId}`);
-    handleDisconnect(clientId);
+    console.log('Client disconnected:', clientId);
+    handleDisconnection(clientId);
   });
 
-  // Handle errors
   ws.on('error', (error) => {
-    console.error(`WebSocket error for client ${clientId}:`, error);
-    handleDisconnect(clientId);
+    console.error('WebSocket error:', error);
+    handleDisconnection(clientId);
   });
 });
 
-// Handle room creation
-function handleCreateRoom(clientId, ws, data) {
-  console.log(`Creating room for client ${clientId}`);
-  const { username } = data;
-  
-  if (!username) {
-    console.error('Username is required for room creation');
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Username is required'
-    }));
-    return;
-  }
-
-  const roomCode = generateRoomCode();
-  console.log(`Generated room code: ${roomCode}`);
-  
-  const room = new Room(roomCode);
-  rooms.set(roomCode, room);
-  
-  // Add the creator as the first player
-  room.addPlayer(clientId, username, ws);
-  
-  // Send success response
-  ws.send(JSON.stringify({
-    type: 'roomCreated',
-    data: {
-      roomCode,
-      username
+// Message handler
+function handleMessage(clientId, ws, message) {
+    switch (message.type) {
+        case "joinRoom":
+            handleJoinRoom(clientId, ws, message.data);
+            break;
+        case "submitGuess":
+            handleSubmitGuess(clientId, message.data);
+            break;
+        case "resetGame":
+            handleResetGame(clientId);
+            break;
+        default:
+            ws.send(JSON.stringify({
+                type: "error",
+                message: "Unknown message type"
+            }));
     }
-  }));
-  
-  console.log(`Room ${roomCode} created successfully`);
 }
 
 // Room joining handler
@@ -567,7 +536,7 @@ function handleSubmitGuess(clientId, data) {
 }
 
 // Handle client disconnection
-function handleDisconnect(clientId) {
+function handleDisconnection(clientId) {
     // Remove player from their room
     for (const [roomCode, room] of rooms.entries()) {
         if (room.players.has(clientId)) {
