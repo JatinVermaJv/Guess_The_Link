@@ -481,7 +481,11 @@ wss.on('connection', (ws, req) => {
 
 // Message handler
 function handleMessage(clientId, ws, message) {
+    console.log(`Handling message of type ${message.type} from client ${clientId}`);
     switch (message.type) {
+        case "createRoom":
+            handleCreateRoom(clientId, ws, message.data);
+            break;
         case "joinRoom":
             handleJoinRoom(clientId, ws, message.data);
             break;
@@ -492,11 +496,48 @@ function handleMessage(clientId, ws, message) {
             handleResetGame(clientId);
             break;
         default:
+            console.warn(`Unknown message type received: ${message.type}`);
             ws.send(JSON.stringify({
                 type: "error",
                 message: "Unknown message type"
             }));
     }
+}
+
+// Room creation handler
+function handleCreateRoom(clientId, ws, data) {
+    console.log(`Creating room for client ${clientId} with username ${data.username}`);
+    const { username } = data;
+    
+    if (!username) {
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Username is required'
+        }));
+        return;
+    }
+
+    // Generate a unique room code
+    const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    console.log(`Generated room code: ${roomCode}`);
+    
+    // Create new room
+    const room = new Room(roomCode);
+    rooms.set(roomCode, room);
+    
+    // Add the creator as the first player
+    room.addPlayer(clientId, username, ws);
+    
+    // Send success response
+    ws.send(JSON.stringify({
+        type: 'roomCreated',
+        data: {
+            roomCode,
+            username
+        }
+    }));
+    
+    console.log(`Room ${roomCode} created successfully`);
 }
 
 // Room joining handler
