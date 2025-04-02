@@ -72,6 +72,8 @@ const wss = new WebSocketServer({
 // Log when the WebSocket server is ready
 wss.on('listening', () => {
   console.log('WebSocket server is ready');
+  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`CORS origin: ${process.env.CORS_ORIGIN || '*'}`);
 });
 
 // Store active connections and rooms
@@ -433,59 +435,99 @@ class Room {
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
-  console.log('New WebSocket connection established');
   const clientId = uuidv4();
+  console.log(`New WebSocket connection established with ID: ${clientId}`);
+  
+  // Store the connection
   connections.set(clientId, ws);
-
+  
   // Send initial connection success message
   ws.send(JSON.stringify({
-    type: "connection",
+    type: 'connection',
     data: { clientId }
   }));
 
+  // Handle incoming messages
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log('Received message:', data);
-      handleMessage(clientId, ws, data);
+      console.log(`Received message from ${clientId}:`, data);
+      
+      switch (data.type) {
+        case 'createRoom':
+          handleCreateRoom(clientId, ws, data.data);
+          break;
+        case 'joinRoom':
+          handleJoinRoom(clientId, ws, data.data);
+          break;
+        case 'submitGuess':
+          handleSubmitGuess(clientId, data.data);
+          break;
+        case 'resetGame':
+          handleResetGame(clientId);
+          break;
+        default:
+          console.warn(`Unknown message type: ${data.type}`);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: `Unknown message type: ${data.type}`
+          }));
+      }
     } catch (error) {
-      console.error('Error parsing message:', error);
-      ws.send(JSON.stringify({ 
-        type: 'error', 
-        message: 'Invalid message format' 
+      console.error('Error processing message:', error);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Invalid message format'
       }));
     }
   });
 
+  // Handle client disconnection
   ws.on('close', () => {
-    console.log('Client disconnected:', clientId);
-    handleDisconnection(clientId);
+    console.log(`Client disconnected: ${clientId}`);
+    handleDisconnect(clientId);
   });
 
+  // Handle errors
   ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-    handleDisconnection(clientId);
+    console.error(`WebSocket error for client ${clientId}:`, error);
+    handleDisconnect(clientId);
   });
 });
 
-// Message handler
-function handleMessage(clientId, ws, message) {
-    switch (message.type) {
-        case "joinRoom":
-            handleJoinRoom(clientId, ws, message.data);
-            break;
-        case "submitGuess":
-            handleSubmitGuess(clientId, message.data);
-            break;
-        case "resetGame":
-            handleResetGame(clientId);
-            break;
-        default:
-            ws.send(JSON.stringify({
-                type: "error",
-                message: "Unknown message type"
-            }));
+// Handle room creation
+function handleCreateRoom(clientId, ws, data) {
+  console.log(`Creating room for client ${clientId}`);
+  const { username } = data;
+  
+  if (!username) {
+    console.error('Username is required for room creation');
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Username is required'
+    }));
+    return;
+  }
+
+  const roomCode = generateRoomCode();
+  console.log(`Generated room code: ${roomCode}`);
+  
+  const room = new Room(roomCode);
+  rooms.set(roomCode, room);
+  
+  // Add the creator as the first player
+  room.addPlayer(clientId, username, ws);
+  
+  // Send success response
+  ws.send(JSON.stringify({
+    type: 'roomCreated',
+    data: {
+      roomCode,
+      username
     }
+  }));
+  
+  console.log(`Room ${roomCode} created successfully`);
 }
 
 // Room joining handler
@@ -525,7 +567,7 @@ function handleSubmitGuess(clientId, data) {
 }
 
 // Handle client disconnection
-function handleDisconnection(clientId) {
+function handleDisconnect(clientId) {
     // Remove player from their room
     for (const [roomCode, room] of rooms.entries()) {
         if (room.players.has(clientId)) {

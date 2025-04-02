@@ -81,6 +81,13 @@ export function WebSocketProvider({ children }) {
       case 'connection':
         setIsConnected(true);
         break;
+      case 'roomCreated':
+        setGameState(prev => ({
+          ...prev,
+          roomCode: data.data.roomCode,
+          players: [{ id: data.data.username, username: data.data.username, score: 0 }]
+        }));
+        break;
       case 'gameState':
         // When receiving a new game state, ensure gameOver is cleared
         setGameState(prev => ({
@@ -174,6 +181,17 @@ export function WebSocketProvider({ children }) {
     }
   };
 
+  const createRoom = async (username) => {
+    try {
+      console.log('Attempting to create room with username:', username);
+      await sendMessage('createRoom', { username });
+      console.log('Create room message sent successfully');
+    } catch (err) {
+      console.error('Failed to create room:', err);
+      throw new Error('Failed to create room');
+    }
+  };
+
   const submitGuess = async (guess) => {
     try {
       await sendMessage('submitGuess', { guess });
@@ -195,6 +213,7 @@ export function WebSocketProvider({ children }) {
     gameState,
     error,
     joinRoom,
+    createRoom,
     submitGuess,
     resetGame,
     sendMessage
