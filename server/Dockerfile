@@ -13,9 +13,12 @@ RUN npm install
 # Copy app source
 COPY . .
 
-# Create directory for SSL certificates
-RUN mkdir -p /usr/src/app/ssl && \
-    chown -R node:node /usr/src/app
+# Set production environment
+ENV NODE_ENV=production
+ENV PORT=3001
+ENV WS_PORT=3001
+ENV USE_SSL=false
+ENV CORS_ORIGIN=*
 
 # Switch to non-root user
 USER node

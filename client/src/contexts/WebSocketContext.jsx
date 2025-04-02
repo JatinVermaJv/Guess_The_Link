@@ -12,44 +12,55 @@ export function WebSocketProvider({ children }) {
   const reconnectTimeout = useRef(null);
 
   const connect = () => {
-    if (ws.current?.readyState === WebSocket.OPEN) return;
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
+      return;
+    }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:3001`;
+    // Use the environment variable for WebSocket URL
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+    console.log('Attempting to connect to WebSocket URL:', wsUrl);
     
-    ws.current = new WebSocket(wsUrl);
+    try {
+      ws.current = new WebSocket(wsUrl);
+      console.log('WebSocket instance created');
 
-    ws.current.onopen = () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
-      setError(null);
-      // Clear any reconnection timeout
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-        reconnectTimeout.current = null;
-      }
-    };
+      ws.current.onopen = () => {
+        console.log('WebSocket connected successfully');
+        setIsConnected(true);
+        setError(null);
+        // Clear any reconnection timeout
+        if (reconnectTimeout.current) {
+          clearTimeout(reconnectTimeout.current);
+          reconnectTimeout.current = null;
+        }
+      };
 
-    ws.current.onclose = () => {
-      console.log('WebSocket disconnected');
-      setIsConnected(false);
-      // Try to reconnect after 2 seconds
-      reconnectTimeout.current = setTimeout(connect, 2000);
-    };
+      ws.current.onclose = (event) => {
+        console.log('WebSocket disconnected with code:', event.code, 'reason:', event.reason);
+        setIsConnected(false);
+        // Try to reconnect after 2 seconds
+        reconnectTimeout.current = setTimeout(connect, 2000);
+      };
 
-    ws.current.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setError('Connection error. Please try again.');
-    };
+      ws.current.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setError('Connection error. Please check console for details.');
+      };
 
-    ws.current.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
+      ws.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Received WebSocket message:', data);
+          handleWebSocketMessage(data);
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+    } catch (error) {
+      console.error('Error creating WebSocket connection:', error);
+      setError('Failed to create WebSocket connection. Please check console for details.');
+    }
   };
 
   useEffect(() => {
@@ -132,6 +143,7 @@ export function WebSocketProvider({ children }) {
 
   const sendMessage = (type, data) => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket not connected. Current state:', ws.current?.readyState);
       connect(); // Try to reconnect if not connected
       setError('Connecting... Please try again in a moment.');
       return Promise.reject(new Error('WebSocket not connected'));
@@ -139,9 +151,12 @@ export function WebSocketProvider({ children }) {
 
     return new Promise((resolve, reject) => {
       try {
-        ws.current.send(JSON.stringify({ type, data }));
+        const message = JSON.stringify({ type, data });
+        console.log('Sending WebSocket message:', message);
+        ws.current.send(message);
         resolve();
       } catch (err) {
+        console.error('Error sending message:', err);
         setError('Failed to send message');
         reject(err);
       }
@@ -150,8 +165,11 @@ export function WebSocketProvider({ children }) {
 
   const joinRoom = async (roomCode, username) => {
     try {
+      console.log('Attempting to join room:', roomCode, 'with username:', username);
       await sendMessage('joinRoom', { roomCode, username });
+      console.log('Join room message sent successfully');
     } catch (err) {
+      console.error('Failed to join room:', err);
       throw new Error('Failed to join room');
     }
   };
