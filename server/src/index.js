@@ -5,9 +5,19 @@ const https = require("https");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
+
+// Configure CORS
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  methods: ['GET', 'POST'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 let server;
 
 // Configure HTTPS if SSL certificates are provided and USE_SSL is true
@@ -17,15 +27,46 @@ if (process.env.USE_SSL === 'true' && process.env.SSL_KEY_PATH && process.env.SS
     const certificate = fs.readFileSync(process.env.SSL_CERT_PATH, 'utf8');
     const credentials = { key: privateKey, cert: certificate };
     server = https.createServer(credentials, app);
+    console.log('Server configured with SSL');
   } catch (error) {
-    console.warn('SSL certificates not found, falling back to HTTP');
+    console.warn('SSL certificates not found, falling back to HTTP:', error);
     server = http.createServer(app);
   }
 } else {
+  console.log('Using HTTP server');
   server = http.createServer(app);
 }
 
-const wss = new WebSocketServer({ server });
+// Configure WebSocket server with proper origin verification
+const wss = new WebSocketServer({ 
+  server,
+  verifyClient: (info) => {
+    const origin = info.origin;
+    const allowedOrigin = process.env.CORS_ORIGIN;
+    console.log(`WebSocket connection attempt from origin: ${origin}`);
+    console.log(`Allowed origin from env: ${allowedOrigin}`);
+    
+    // In development or if CORS_ORIGIN is not set, accept all origins
+    if (!allowedOrigin || process.env.NODE_ENV !== 'production') {
+      console.log('Accepting connection (development mode or no CORS_ORIGIN set)');
+      return true;
+    }
+
+    // In production, verify the origin
+    if (origin === allowedOrigin) {
+      console.log('Origin verified, accepting connection');
+      return true;
+    }
+
+    console.warn(`Rejected WebSocket connection from origin: ${origin}`);
+    return false;
+  }
+});
+
+// Log when the WebSocket server is ready
+wss.on('listening', () => {
+  console.log('WebSocket server is ready');
+});
 
 // Store active connections and rooms
 const connections = new Map();

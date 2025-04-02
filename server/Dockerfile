@@ -4,19 +4,19 @@ FROM node:20-alpine
 # Create app directory
 WORKDIR /usr/src/app
 
-# Copy package files first
+# Copy package files
 COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy the rest of the application
+# Copy app source
 COPY . .
 
 # Create directory for SSL certificates
 RUN mkdir -p /usr/src/app/ssl
 
-# Expose the port the app runs on
+# Expose port
 EXPOSE 3001
 
 # Start the application
