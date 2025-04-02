@@ -4,11 +4,13 @@ FROM node:20-alpine
 # Create app directory
 WORKDIR /usr/src/app
 
-# Install app dependencies
+# Copy package files first
 COPY package*.json ./
-RUN npm ci --only=production
 
-# Bundle app source
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the application
 COPY . .
 
 # Create directory for SSL certificates

@@ -10,12 +10,17 @@ require('dotenv').config();
 const app = express();
 let server;
 
-// Configure HTTPS if SSL certificates are provided
-if (process.env.NODE_ENV === 'production' && process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH) {
-  const privateKey = fs.readFileSync(process.env.SSL_KEY_PATH, 'utf8');
-  const certificate = fs.readFileSync(process.env.SSL_CERT_PATH, 'utf8');
-  const credentials = { key: privateKey, cert: certificate };
-  server = https.createServer(credentials, app);
+// Configure HTTPS if SSL certificates are provided and USE_SSL is true
+if (process.env.USE_SSL === 'true' && process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH) {
+  try {
+    const privateKey = fs.readFileSync(process.env.SSL_KEY_PATH, 'utf8');
+    const certificate = fs.readFileSync(process.env.SSL_CERT_PATH, 'utf8');
+    const credentials = { key: privateKey, cert: certificate };
+    server = https.createServer(credentials, app);
+  } catch (error) {
+    console.warn('SSL certificates not found, falling back to HTTP');
+    server = http.createServer(app);
+  }
 } else {
   server = http.createServer(app);
 }
