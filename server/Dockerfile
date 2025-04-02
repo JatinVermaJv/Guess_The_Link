@@ -14,7 +14,11 @@ RUN npm install
 COPY . .
 
 # Create directory for SSL certificates
-RUN mkdir -p /usr/src/app/ssl
+RUN mkdir -p /usr/src/app/ssl && \
+    chown -R node:node /usr/src/app
+
+# Switch to non-root user
+USER node
 
 # Expose port
 EXPOSE 3001

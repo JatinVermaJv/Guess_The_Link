@@ -431,25 +431,34 @@ wss.on('connection', (ws, req) => {
   const clientId = uuidv4();
   connections.set(clientId, ws);
 
+  // Send initial connection success message
+  ws.send(JSON.stringify({
+    type: "connection",
+    data: { clientId }
+  }));
+
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
       console.log('Received message:', data);
-      handleWebSocketMessage(clientId, data);
+      handleMessage(clientId, ws, data);
     } catch (error) {
       console.error('Error parsing message:', error);
-      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: 'Invalid message format' 
+      }));
     }
   });
 
   ws.on('close', () => {
     console.log('Client disconnected:', clientId);
-    handleClientDisconnect(clientId);
+    handleDisconnection(clientId);
   });
 
   ws.on('error', (error) => {
     console.error('WebSocket error:', error);
-    handleClientDisconnect(clientId);
+    handleDisconnection(clientId);
   });
 });
 
