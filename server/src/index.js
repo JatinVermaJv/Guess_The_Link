@@ -20,21 +20,27 @@ app.use(cors({
 
 let server;
 
-// Configure HTTPS if SSL certificates are provided and USE_SSL is true
-if (process.env.USE_SSL === 'true' && process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH) {
-  try {
-    const privateKey = fs.readFileSync(process.env.SSL_KEY_PATH, 'utf8');
-    const certificate = fs.readFileSync(process.env.SSL_CERT_PATH, 'utf8');
-    const credentials = { key: privateKey, cert: certificate };
-    server = https.createServer(credentials, app);
-    console.log('Server configured with SSL');
-  } catch (error) {
-    console.warn('SSL certificates not found, falling back to HTTP:', error);
+// In production, Render provides SSL termination, so we use HTTP
+if (process.env.NODE_ENV === 'production') {
+  console.log('Using HTTP server (Render provides SSL termination)');
+  server = http.createServer(app);
+} else {
+  // In development, try to use SSL if certificates are available
+  if (process.env.USE_SSL === 'true' && process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH) {
+    try {
+      const privateKey = fs.readFileSync(process.env.SSL_KEY_PATH, 'utf8');
+      const certificate = fs.readFileSync(process.env.SSL_CERT_PATH, 'utf8');
+      const credentials = { key: privateKey, cert: certificate };
+      server = https.createServer(credentials, app);
+      console.log('Server configured with SSL');
+    } catch (error) {
+      console.warn('SSL certificates not found, falling back to HTTP:', error);
+      server = http.createServer(app);
+    }
+  } else {
+    console.log('Using HTTP server');
     server = http.createServer(app);
   }
-} else {
-  console.log('Using HTTP server');
-  server = http.createServer(app);
 }
 
 // Configure WebSocket server with proper origin verification
