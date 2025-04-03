@@ -10,6 +10,8 @@ export function WebSocketProvider({ children }) {
   const [error, setError] = useState(null);
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 5;
 
   const connect = () => {
     if (ws.current?.readyState === WebSocket.OPEN) {
@@ -20,6 +22,13 @@ export function WebSocketProvider({ children }) {
     // Use the environment variable for WebSocket URL
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
     console.log('Attempting to connect to WebSocket URL:', wsUrl);
+    console.log('Current environment:', process.env.NODE_ENV);
+    
+    if (!wsUrl) {
+      console.error('WebSocket URL is not defined');
+      setError('WebSocket URL is not configured');
+      return;
+    }
     
     try {
       ws.current = new WebSocket(wsUrl);
@@ -29,6 +38,7 @@ export function WebSocketProvider({ children }) {
         console.log('WebSocket connected successfully');
         setIsConnected(true);
         setError(null);
+        reconnectAttempts.current = 0;
         // Clear any reconnection timeout
         if (reconnectTimeout.current) {
           clearTimeout(reconnectTimeout.current);
@@ -39,13 +49,23 @@ export function WebSocketProvider({ children }) {
       ws.current.onclose = (event) => {
         console.log('WebSocket disconnected with code:', event.code, 'reason:', event.reason);
         setIsConnected(false);
-        // Try to reconnect after 2 seconds
-        reconnectTimeout.current = setTimeout(connect, 2000);
+        
+        // Try to reconnect if we haven't exceeded max attempts
+        if (reconnectAttempts.current < maxReconnectAttempts) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
+          console.log(`Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts.current + 1}/${maxReconnectAttempts})`);
+          reconnectTimeout.current = setTimeout(() => {
+            reconnectAttempts.current++;
+            connect();
+          }, delay);
+        } else {
+          setError('Failed to connect after multiple attempts. Please refresh the page.');
+        }
       };
 
       ws.current.onerror = (error) => {
         console.error('WebSocket error:', error);
-        setError('Connection error. Please check console for details.');
+        setError('Connection error. Please check your internet connection.');
       };
 
       ws.current.onmessage = (event) => {
@@ -59,7 +79,7 @@ export function WebSocketProvider({ children }) {
       };
     } catch (error) {
       console.error('Error creating WebSocket connection:', error);
-      setError('Failed to create WebSocket connection. Please check console for details.');
+      setError('Failed to create WebSocket connection: ' + error.message);
     }
   };
 
@@ -80,13 +100,6 @@ export function WebSocketProvider({ children }) {
     switch (data.type) {
       case 'connection':
         setIsConnected(true);
-        break;
-      case 'roomCreated':
-        setGameState(prev => ({
-          ...prev,
-          roomCode: data.data.roomCode,
-          players: [{ id: data.data.username, username: data.data.username, score: 0 }]
-        }));
         break;
       case 'gameState':
         // When receiving a new game state, ensure gameOver is cleared
@@ -184,11 +197,17 @@ export function WebSocketProvider({ children }) {
   const createRoom = async (username) => {
     try {
       console.log('Attempting to create room with username:', username);
+      if (!isConnected) {
+        console.log('WebSocket not connected, attempting to connect...');
+        connect();
+        throw new Error('Please wait for connection and try again');
+      }
       await sendMessage('createRoom', { username });
       console.log('Create room message sent successfully');
     } catch (err) {
       console.error('Failed to create room:', err);
-      throw new Error('Failed to create room');
+      setError(err.message);
+      throw err;
     }
   };
 

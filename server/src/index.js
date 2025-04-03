@@ -62,6 +62,7 @@ const wss = new WebSocketServer({
     console.log('- Allowed Origin:', allowedOrigin);
     console.log('- Headers:', info.req.headers);
     console.log('- Environment:', process.env.NODE_ENV);
+    console.log('- Request URL:', info.req.url);
     
     // In development or if CORS_ORIGIN is not set, accept all origins
     if (!allowedOrigin || process.env.NODE_ENV !== 'production') {
@@ -69,8 +70,8 @@ const wss = new WebSocketServer({
       return callback(true);
     }
     
-    // In production, verify against allowed origin
-    if (origin === allowedOrigin) {
+    // In production, allow the specific origin and null origin (for some mobile browsers)
+    if (origin === allowedOrigin || origin === 'null' || !origin) {
       console.log('Origin verified, accepting connection');
       return callback(true);
     }
@@ -83,6 +84,10 @@ const wss = new WebSocketServer({
 // Log when the WebSocket server is ready
 wss.on('listening', () => {
   console.log('WebSocket server is ready');
+  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`CORS origin: ${process.env.CORS_ORIGIN || '*'}`);
+  console.log(`Server port: ${process.env.PORT || 3001}`);
+  console.log(`WebSocket port: ${process.env.WS_PORT || 3001}`);
 });
 
 // Store active connections and rooms
@@ -444,37 +449,55 @@ class Room {
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
-  console.log('New WebSocket connection established');
   const clientId = uuidv4();
+  console.log(`New WebSocket connection established for client ${clientId}`);
+  console.log('Client IP:', req.socket.remoteAddress);
+  console.log('Request URL:', req.url);
+  console.log('Request Headers:', req.headers);
+  
   connections.set(clientId, ws);
 
   // Send initial connection success message
-  ws.send(JSON.stringify({
-    type: "connection",
-    data: { clientId }
-  }));
+  try {
+    ws.send(JSON.stringify({
+      type: "connection",
+      data: { 
+        clientId,
+        serverTime: new Date().toISOString(),
+        message: "Connection established successfully"
+      }
+    }));
+    console.log(`Sent connection success message to client ${clientId}`);
+  } catch (error) {
+    console.error(`Error sending initial message to client ${clientId}:`, error);
+  }
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log('Received message:', data);
+      console.log(`Received message from client ${clientId}:`, data);
       handleMessage(clientId, ws, data);
     } catch (error) {
-      console.error('Error parsing message:', error);
-      ws.send(JSON.stringify({ 
-        type: 'error', 
-        message: 'Invalid message format' 
-      }));
+      console.error(`Error processing message from client ${clientId}:`, error);
+      try {
+        ws.send(JSON.stringify({ 
+          type: 'error', 
+          message: 'Invalid message format',
+          error: error.message
+        }));
+      } catch (sendError) {
+        console.error(`Error sending error message to client ${clientId}:`, sendError);
+      }
     }
   });
 
-  ws.on('close', () => {
-    console.log('Client disconnected:', clientId);
+  ws.on('close', (code, reason) => {
+    console.log(`Client ${clientId} disconnected:`, { code, reason });
     handleDisconnection(clientId);
   });
 
   ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
+    console.error(`WebSocket error for client ${clientId}:`, error);
     handleDisconnection(clientId);
   });
 });
