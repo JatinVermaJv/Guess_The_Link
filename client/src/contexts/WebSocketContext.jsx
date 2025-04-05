@@ -12,11 +12,17 @@ export function WebSocketProvider({ children }) {
   const reconnectTimeout = useRef(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
+  const connectionCheckInterval = useRef(null);
 
   const connect = () => {
     if (ws.current?.readyState === WebSocket.OPEN) {
       console.log('WebSocket already connected');
       return;
+    }
+
+    // Clear any existing connection check interval
+    if (connectionCheckInterval.current) {
+      clearInterval(connectionCheckInterval.current);
     }
 
     // Use the environment variable for WebSocket URL
@@ -34,6 +40,18 @@ export function WebSocketProvider({ children }) {
       ws.current = new WebSocket(wsUrl);
       console.log('WebSocket instance created');
 
+      // Set up a connection check interval
+      connectionCheckInterval.current = setInterval(() => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+          // Send a ping to keep the connection alive
+          try {
+            ws.current.send(JSON.stringify({ type: 'ping' }));
+          } catch (err) {
+            console.warn('Failed to send ping:', err);
+          }
+        }
+      }, 30000); // Check every 30 seconds
+
       ws.current.onopen = () => {
         console.log('WebSocket connected successfully');
         setIsConnected(true);
@@ -50,6 +68,11 @@ export function WebSocketProvider({ children }) {
         console.log('WebSocket disconnected with code:', event.code, 'reason:', event.reason);
         setIsConnected(false);
         
+        // Clear the connection check interval
+        if (connectionCheckInterval.current) {
+          clearInterval(connectionCheckInterval.current);
+        }
+
         // Try to reconnect if we haven't exceeded max attempts
         if (reconnectAttempts.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
@@ -72,6 +95,13 @@ export function WebSocketProvider({ children }) {
         try {
           const data = JSON.parse(event.data);
           console.log('Received WebSocket message:', data);
+
+          // Handle pong response
+          if (data.type === 'pong') {
+            console.log('Received pong from server');
+            return;
+          }
+
           handleWebSocketMessage(data);
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
@@ -90,6 +120,9 @@ export function WebSocketProvider({ children }) {
       if (reconnectTimeout.current) {
         clearTimeout(reconnectTimeout.current);
       }
+      if (connectionCheckInterval.current) {
+        clearInterval(connectionCheckInterval.current);
+      }
       if (ws.current) {
         ws.current.close();
       }
@@ -102,17 +135,16 @@ export function WebSocketProvider({ children }) {
         setIsConnected(true);
         break;
       case 'gameState':
-        // When receiving a new game state, ensure gameOver is cleared
         setGameState(prev => ({
           ...data.state,
-          gameOver: null // Explicitly clear gameOver state
+          gameOver: null
         }));
         break;
       case 'roundUpdate':
         setGameState(prev => ({
           ...prev,
           currentRound: data.round,
-          gameOver: null // Clear gameOver when round updates
+          gameOver: null
         }));
         break;
       case 'scoreUpdate':
@@ -123,11 +155,10 @@ export function WebSocketProvider({ children }) {
               ? { ...player, score: data.score }
               : player
           ),
-          gameOver: null // Clear gameOver when scores update
+          gameOver: null
         }));
         break;
       case 'correctGuess':
-        // Update game state with new scores
         setGameState(prev => ({
           ...prev,
           players: prev.players.map(player =>
@@ -135,9 +166,8 @@ export function WebSocketProvider({ children }) {
               ? { ...player, score: data.state.totalScore }
               : player
           ),
-          gameOver: null // Clear gameOver on correct guess
+          gameOver: null
         }));
-        // Show success message
         setError(null);
         setGameState(prev => ({
           ...prev,
@@ -146,12 +176,6 @@ export function WebSocketProvider({ children }) {
         break;
       case 'incorrectGuess':
         setError(`Incorrect guess: ${data.data.message}`);
-        break;
-      case 'gameOver':
-        setGameState(prev => ({
-          ...prev,
-          gameOver: data.state
-        }));
         break;
       case 'error':
         setError(data.message);
@@ -162,24 +186,44 @@ export function WebSocketProvider({ children }) {
   };
 
   const sendMessage = (type, data) => {
-    if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
-      console.log('WebSocket not connected. Current state:', ws.current?.readyState);
-      connect(); // Try to reconnect if not connected
-      setError('Connecting... Please try again in a moment.');
-      return Promise.reject(new Error('WebSocket not connected'));
-    }
-
     return new Promise((resolve, reject) => {
-      try {
-        const message = JSON.stringify({ type, data });
-        console.log('Sending WebSocket message:', message);
-        ws.current.send(message);
-        resolve();
-      } catch (err) {
-        console.error('Error sending message:', err);
-        setError('Failed to send message');
-        reject(err);
-      }
+      const maxAttempts = 3;
+      let attempts = 0;
+
+      const tryToSend = () => {
+        if (attempts >= maxAttempts) {
+          const error = new Error('Failed to send message after multiple attempts');
+          console.error(error);
+          setError('Connection unstable. Please try again.');
+          reject(error);
+          return;
+        }
+
+        if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+          attempts++;
+          console.log(`WebSocket not ready. Attempt ${attempts}/${maxAttempts}. Retrying in 1s...`);
+          setTimeout(tryToSend, 1000);
+          return;
+        }
+
+        try {
+          const message = JSON.stringify({ type, data });
+          console.log('Sending WebSocket message:', message);
+          ws.current.send(message);
+          resolve();
+        } catch (err) {
+          attempts++;
+          console.error(`Error sending message (attempt ${attempts}/${maxAttempts}):`, err);
+          if (attempts < maxAttempts) {
+            setTimeout(tryToSend, 1000);
+          } else {
+            setError('Failed to send message');
+            reject(err);
+          }
+        }
+      };
+
+      tryToSend();
     });
   };
 
@@ -197,16 +241,10 @@ export function WebSocketProvider({ children }) {
   const createRoom = async (username) => {
     try {
       console.log('Attempting to create room with username:', username);
-      if (!isConnected) {
-        console.log('WebSocket not connected, attempting to connect...');
-        connect();
-        throw new Error('Please wait for connection and try again');
-      }
       await sendMessage('createRoom', { username });
       console.log('Create room message sent successfully');
     } catch (err) {
       console.error('Failed to create room:', err);
-      setError(err.message);
       throw err;
     }
   };

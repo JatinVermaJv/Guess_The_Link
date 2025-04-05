@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import Button from '@/components/Button';
@@ -25,6 +25,10 @@ const FaCompass = dynamic(() => import('react-icons/fa').then(mod => mod.FaCompa
   ssr: false
 });
 
+const FaSpinner = dynamic(() => import('react-icons/fa').then(mod => mod.FaSpinner), {
+  ssr: false
+});
+
 export default function Home() {
   const router = useRouter();
   const { joinRoom, isConnected } = useWebSocket();
@@ -33,10 +37,27 @@ export default function Home() {
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
+
+  // Handle connection retries
+  useEffect(() => {
+    let retryTimeout;
+    if (!isConnected && connectionAttempts < 3) {
+      retryTimeout = setTimeout(() => {
+        setConnectionAttempts(prev => prev + 1);
+      }, 2000);
+    }
+    return () => clearTimeout(retryTimeout);
+  }, [isConnected, connectionAttempts]);
 
   const handleCreateRoom = async () => {
     if (!username) {
       setError('Please enter a username first');
+      return;
+    }
+
+    if (!isConnected) {
+      setError('Waiting for connection... Please try again in a moment.');
       return;
     }
 
@@ -46,6 +67,7 @@ export default function Home() {
       await joinRoom(newRoomCode, username);
       router.push('/game');
     } catch (err) {
+      console.error('Failed to create room:', err);
       setError('Failed to create room. Please try again.');
     } finally {
       setIsLoading(false);
@@ -59,11 +81,17 @@ export default function Home() {
       return;
     }
 
+    if (!isConnected) {
+      setError('Waiting for connection... Please try again in a moment.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       await joinRoom(roomCode, username);
       router.push('/game');
     } catch (err) {
+      console.error('Failed to join room:', err);
       setError('Failed to join room. Please try again.');
     } finally {
       setIsLoading(false);
@@ -83,6 +111,24 @@ export default function Home() {
         transition={{ duration: 0.5 }}
         className="relative z-10 w-full max-w-md"
       >
+        {/* Connection Status */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute -top-8 left-1/2 transform -translate-x-1/2"
+        >
+          {!isConnected && (
+            <div className="flex items-center gap-2 text-yellow-400 bg-yellow-400/10 px-3 py-1 rounded-full">
+              <FaSpinner className="animate-spin" />
+              <span className="text-sm">
+                {connectionAttempts === 0
+                  ? 'Connecting...'
+                  : `Retrying connection (${connectionAttempts}/3)...`}
+              </span>
+            </div>
+          )}
+        </motion.div>
+
         {/* Logo and Title */}
         <div className="text-center mb-8">
           <motion.div
@@ -134,15 +180,25 @@ export default function Home() {
               <Button
                 onClick={handleCreateRoom}
                 className="w-full flex items-center justify-center gap-2 py-3"
-                disabled={isLoading || !username}
+                disabled={isLoading || !username || !isConnected}
               >
-                <FaGamepad className="text-xl" />
-                {isLoading ? 'Creating Room...' : 'Create New Room'}
+                {isLoading ? (
+                  <>
+                    <FaSpinner className="animate-spin text-xl" />
+                    Creating Room...
+                  </>
+                ) : (
+                  <>
+                    <FaGamepad className="text-xl" />
+                    Create New Room
+                  </>
+                )}
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => setShowJoinForm(true)}
                 className="w-full flex items-center justify-center gap-2 py-3"
+                disabled={!isConnected}
               >
                 <FaUsers className="text-xl" />
                 Join Existing Room
@@ -183,10 +239,19 @@ export default function Home() {
                 <Button
                   type="submit"
                   className="flex-1 flex items-center justify-center gap-2 py-3"
-                  disabled={isLoading || !roomCode || !username}
+                  disabled={isLoading || !roomCode || !username || !isConnected}
                 >
-                  {isLoading ? 'Joining...' : 'Join Room'}
-                  <FaArrowRight />
+                  {isLoading ? (
+                    <>
+                      <FaSpinner className="animate-spin text-xl" />
+                      Joining...
+                    </>
+                  ) : (
+                    <>
+                      Join Room
+                      <FaArrowRight />
+                    </>
+                  )}
                 </Button>
               </div>
             </motion.form>
