@@ -183,6 +183,11 @@ export function WebSocketProvider({ children }) {
           gameOver: data.state
         }));
         break;
+      case 'gameReset':
+        // Handle game reset by updating the game state with the new state
+        setGameState(data.state);
+        setError(null);
+        break;
       case 'error':
         setError(data.message);
         break;
@@ -266,7 +271,10 @@ export function WebSocketProvider({ children }) {
   const resetGame = async () => {
     try {
       await sendMessage('resetGame', {});
+      // Clear any local error state
+      setError(null);
     } catch (err) {
+      console.error('Failed to reset game:', err);
       throw new Error('Failed to reset game');
     }
   };
