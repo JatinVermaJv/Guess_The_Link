@@ -177,6 +177,12 @@ export function WebSocketProvider({ children }) {
       case 'incorrectGuess':
         setError(`Incorrect guess: ${data.data.message}`);
         break;
+      case 'gameOver':
+        setGameState(prev => ({
+          ...prev,
+          gameOver: data.state
+        }));
+        break;
       case 'error':
         setError(data.message);
         break;
