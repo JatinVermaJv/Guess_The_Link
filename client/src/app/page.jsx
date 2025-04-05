@@ -21,6 +21,10 @@ const FaArrowRight = dynamic(() => import('react-icons/fa').then(mod => mod.FaAr
   ssr: false
 });
 
+const FaCompass = dynamic(() => import('react-icons/fa').then(mod => mod.FaCompass), {
+  ssr: false
+});
+
 export default function Home() {
   const router = useRouter();
   const { joinRoom, isConnected } = useWebSocket();
@@ -33,13 +37,11 @@ export default function Home() {
   const handleCreateRoom = async () => {
     if (!username) {
       setError('Please enter a username first');
-      setShowJoinForm(true);
       return;
     }
 
     setIsLoading(true);
     try {
-      // Generate a random room code (6 characters)
       const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
       await joinRoom(newRoomCode, username);
       router.push('/game');
@@ -69,108 +71,138 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-4">
+    <main className="min-h-screen flex flex-col items-center justify-center p-4 relative">
+      {/* Animated waves overlay */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-black/30 to-transparent" />
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="text-center mb-12"
+        className="relative z-10 w-full max-w-md"
       >
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Guess the Link
-        </h1>
-        <p className="text-lg text-gray-600">
-          Challenge your friends to guess the correct link from images!
-        </p>
-      </motion.div>
-
-      <div className="w-full max-w-md space-y-6">
-        {!showJoinForm ? (
+        {/* Logo and Title */}
+        <div className="text-center mb-8">
           <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="space-y-4"
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
           >
-            <Input
-              label="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter your username"
-              error={error}
-            />
-            <Button
-              onClick={handleCreateRoom}
-              className="w-full flex items-center justify-center gap-2"
-              disabled={isLoading || !username}
-            >
-              <FaGamepad className="text-xl" />
-              {isLoading ? 'Creating Room...' : 'Create New Room'}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setShowJoinForm(true)}
-              className="w-full flex items-center justify-center gap-2"
-            >
-              <FaUsers className="text-xl" />
-              Join Existing Room
-            </Button>
+            <FaCompass className="text-6xl text-blue-400 mx-auto mb-4" />
           </motion.div>
-        ) : (
-          <motion.form
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            onSubmit={handleJoinRoom}
-            className="space-y-4"
+          <motion.h1
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-5xl font-bold text-white mb-4 tracking-tight"
           >
-            <Input
-              label="Room Code"
-              value={roomCode}
-              onChange={(e) => setRoomCode(e.target.value)}
-              placeholder="Enter room code"
-              error={error}
-            />
-            <Input
-              label="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter your username"
-              error={error}
-            />
-            <div className="flex gap-4">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setShowJoinForm(false)}
-                className="flex-1"
-                disabled={isLoading}
-              >
-                Back
-              </Button>
-              <Button
-                type="submit"
-                className="flex-1 flex items-center justify-center gap-2"
-                disabled={isLoading || !roomCode || !username}
-              >
-                {isLoading ? 'Joining...' : 'Join Room'}
-                <FaArrowRight />
-              </Button>
-            </div>
-          </motion.form>
-        )}
-      </div>
+            Guess the Link
+          </motion.h1>
+          <motion.p
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="text-xl text-gray-300"
+          >
+            Challenge your friends to guess the correct link from images!
+          </motion.p>
+        </div>
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="mt-12 text-center text-sm text-gray-500"
-      >
-        <p>Challenge your friends to a game of Guess the Link!</p>
-        <p className="mt-2">
-          Each round shows 3 images - can you guess the correct link?
-        </p>
+        {/* Main Form */}
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="glass-panel p-6 space-y-6"
+        >
+          {!showJoinForm ? (
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-6"
+            >
+              <Input
+                label="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter your username"
+                error={error}
+              />
+              <Button
+                onClick={handleCreateRoom}
+                className="w-full flex items-center justify-center gap-2 py-3"
+                disabled={isLoading || !username}
+              >
+                <FaGamepad className="text-xl" />
+                {isLoading ? 'Creating Room...' : 'Create New Room'}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setShowJoinForm(true)}
+                className="w-full flex items-center justify-center gap-2 py-3"
+              >
+                <FaUsers className="text-xl" />
+                Join Existing Room
+              </Button>
+            </motion.div>
+          ) : (
+            <motion.form
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              onSubmit={handleJoinRoom}
+              className="space-y-6"
+            >
+              <Input
+                label="Room Code"
+                value={roomCode}
+                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                placeholder="Enter room code"
+                error={error}
+              />
+              <Input
+                label="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter your username"
+                error={error}
+              />
+              <div className="flex gap-4">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowJoinForm(false)}
+                  className="flex-1 py-3"
+                  disabled={isLoading}
+                >
+                  Back
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1 flex items-center justify-center gap-2 py-3"
+                  disabled={isLoading || !roomCode || !username}
+                >
+                  {isLoading ? 'Joining...' : 'Join Room'}
+                  <FaArrowRight />
+                </Button>
+              </div>
+            </motion.form>
+          )}
+        </motion.div>
+
+        {/* Game Description */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.7 }}
+          className="mt-8 text-center text-gray-400 space-y-2"
+        >
+          <p className="text-lg">Challenge your friends to a game of Guess the Link!</p>
+          <p>Each round shows 3 images - can you guess the correct link?</p>
+        </motion.div>
       </motion.div>
     </main>
   );

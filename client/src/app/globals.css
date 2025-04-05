@@ -4,28 +4,40 @@
 
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-gray-900 text-gray-100;
+    background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.8)), url('/LandingPage4.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    min-height: 100vh;
   }
 }
 
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
   }
   
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700;
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 shadow-lg shadow-blue-500/20;
   }
   
   .btn-secondary {
-    @apply btn bg-white text-primary-600 border border-primary-200 hover:bg-primary-50;
+    @apply btn bg-gray-800/80 text-gray-100 border border-gray-700 hover:bg-gray-700/80 hover:scale-105 backdrop-blur-sm;
   }
   
   .input {
-    @apply w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply w-full px-4 py-3 rounded-lg border bg-gray-900/50 border-gray-700 
+           text-gray-100 placeholder-gray-500
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+           backdrop-blur-sm transition-all;
   }
   
   .card {
-    @apply bg-white rounded-xl shadow-md p-6;
+    @apply bg-gray-900/40 backdrop-blur-md rounded-xl border border-gray-800 shadow-xl;
+  }
+
+  .glass-panel {
+    @apply bg-gray-900/40 backdrop-blur-md border border-gray-800/50 rounded-xl shadow-xl;
   }
 }
