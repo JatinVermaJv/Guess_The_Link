@@ -3,7 +3,7 @@ import { WebSocketProvider } from '@/contexts/WebSocketContext';
 
 export const metadata = {
   title: 'Guess the Link',
-  description: 'A multiplayer game where players guess the correct link from a set of images.',
+  description: 'A multiplayer game where players guess the correct link from a set of images. Fun to play with friends',
 };
 
 export default function RootLayout({ children }) {
